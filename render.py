@@ -187,7 +187,7 @@ def draw_numbers(draw):
         cx = PAGE * (i + 0.5) / 6
         draw.text((cx, 452), big, font=get_font(30, bold=True),
                   fill=SNOW, anchor="mm")
-        draw.text((cx, 481), small, font=get_font(11),
+        draw.text((cx, 481), small, font=get_font(11, bold=True),
                   fill=GOLD, anchor="mm")
         if i:
             draw.line([PAGE * i / 6, 432, PAGE * i / 6, 488],
