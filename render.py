@@ -1,15 +1,12 @@
-"""Draw the 24 November 2026 world-news broadsheet (1024x1024 PNG).
+"""Typeset the 24 November 2026 front page and write entry.png (1024x1024).
 
-Built from a DeepSeek V4.1-Flash draft (via the APInex connector), assembled
-and adapted by the Muse session that runs this repo: the layout geometry,
-headline fit, pin projection, briefs data and date-check list are this
-session's own work, and the model's draft had its vertical flow, map strip
-and footer overlaps fixed here. The lead illustration (burning warship in
-Benghazi port) is AI-generated and committed as lead art; everything else
-is drawn here with Pillow from a fixed, date-checked news brief. No network,
-no timestamps in the output: two runs write identical bytes.
+The page is a dense broadsheet: masthead, one illustrated lead, two side
+stories, a numbers band, a dotted world map with pins, thirty dated briefs
+and a date-check box. Everything is drawn with Pillow from the fixed brief
+below; the lead photograph is an AI-generated picture committed next to this
+file. No network access, no clock reads, so repeated runs are byte-identical.
 
-Run:  python3 render.py   (writes entry.png next to this file)
+Local build only:  python3 render.py
 """
 
 import math
@@ -18,233 +15,230 @@ from glob import glob
 
 from PIL import Image, ImageDraw, ImageFont
 
-FONT_DIR = "/usr/share/fonts/truetype/dejavu/"
-
-CREAM = "#f7f2e7"
+DEJAVU = "/usr/share/fonts/truetype/dejavu/"
+PAGE = 1024
+PAPER = "#f7f2e7"
 INK = "#141414"
-BLACK = "#141414"
-WHITE = "#ffffff"
-GRAY = (120, 120, 120)
-RED = "#b3121b"
-NAVY = "#12305a"
-YELLOW = "#f2c14e"
-W = H = 1024
+SNOW = "#ffffff"
+MUTED = (120, 120, 120)
+SCARLET = "#b3121b"
+DEEP = "#12305a"
+GOLD = "#f2c14e"
+MARGIN = 20
+LEAD_WIDTH = 620
+HAIRLINE = (200, 200, 200)
 
 
-def load(size, bold=False, serif=False):
-    """Load a DejaVu face, falling back to Pillow's built-in bitmap font."""
-    if serif and bold:
-        names = ["DejaVuSerif-Bold.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]
-    elif serif:
-        names = ["DejaVuSerif.ttf", "DejaVuSans.ttf"]
+def get_font(points, bold=False, serif=False):
+    """Pick a DejaVu face; fall back to Pillow's bitmap font if missing."""
+    if serif:
+        chain = ["DejaVuSerif-Bold.ttf", "DejaVuSans-Bold.ttf"] if bold else [
+            "DejaVuSerif.ttf", "DejaVuSans.ttf"]
     elif bold:
-        names = ["DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]
+        chain = ["DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]
     else:
-        names = ["DejaVuSans.ttf"]
-    for name in names:
+        chain = ["DejaVuSans.ttf"]
+    for face in chain:
         try:
-            return ImageFont.truetype(os.path.join(FONT_DIR, name), size)
+            return ImageFont.truetype(os.path.join(DEJAVU, face), points)
         except (OSError, IOError):
             continue
     return ImageFont.load_default()
 
 
-def F(sz, b=True):
-    return load(sz, bold=b)
-
-
-def fit(draw, text, max_w, base_size, bold=True, serif=False):
-    """Largest size <= base_size at which text fits max_w (deterministic)."""
-    size = base_size
+def headline_font(draw, text, width, top_size, bold=True, serif=False):
+    """Shrink a one-line headline until it fits, never below 12 points."""
+    size = top_size
     while size > 12:
-        font = load(size, bold=bold, serif=serif)
-        if draw.textlength(text, font=font) <= max_w:
-            return font
+        face = get_font(size, bold=bold, serif=serif)
+        if draw.textlength(text, font=face) <= width:
+            return face
         size -= 1
-    return load(12, bold=bold, serif=serif)
+    return get_font(12, bold=bold, serif=serif)
 
 
-def wrap(draw, text, font, max_w):
-    """Greedy word wrap measured with draw.textlength."""
-    lines = []
-    for para in text.split("\n"):
-        words = para.split()
+def wrap_lines(draw, text, face, width):
+    """Greedy wrap measured with the real font metrics."""
+    out = []
+    for chunk in text.split("\n"):
+        words = chunk.split()
         if not words:
-            lines.append("")
+            out.append("")
             continue
-        cur = words[0]
+        current = words[0]
         for word in words[1:]:
-            trial = cur + " " + word
-            if draw.textlength(trial, font=font) <= max_w:
-                cur = trial
+            trial = current + " " + word
+            if draw.textlength(trial, font=face) <= width:
+                current = trial
             else:
-                lines.append(cur)
-                cur = word
-        lines.append(cur)
-    return lines
+                out.append(current)
+                current = word
+        out.append(current)
+    return out
 
 
-img = Image.new("RGB", (W, H), CREAM)
-draw = ImageDraw.Draw(img)
-
-f_mast = load(54, bold=True, serif=True)
-f_date = load(20)
-f_kick = load(16, bold=True)
-f_stand = load(16)
+def centered(draw, text, face, y, fill=INK):
+    """Draw one line centred on the page."""
+    span = draw.textlength(text, font=face)
+    draw.text(((PAGE - span) / 2, y), text, font=face, fill=fill)
 
 
-def center(text, font, y, fill=INK):
-    w = draw.textlength(text, font=font)
-    draw.text(((W - w) / 2, y), text, font=font, fill=fill)
+def draw_masthead(draw):
+    centered(draw, "THE WORLD IN ONE DAY",
+             get_font(54, bold=True, serif=True), 18)
+    centered(draw, "TUESDAY 24 NOVEMBER 2026", get_font(20), 82)
+    draw.line([(MARGIN, 108), (PAGE - MARGIN, 108)], fill=INK, width=3)
+    draw.line([(MARGIN, 114), (PAGE - MARGIN, 114)], fill=INK, width=1)
 
 
-# --- masthead -------------------------------------------------------------
-center("THE WORLD IN ONE DAY", f_mast, 18)
-center("TUESDAY 24 NOVEMBER 2026", f_date, 82)
-draw.line([(20, 108), (W - 20, 108)], fill=INK, width=3)
-draw.line([(20, 114), (W - 20, 114)], fill=INK, width=1)
+def draw_lead(canvas, draw):
+    """Lead story: kicker, fitted headline, sub-head, standfirst, picture."""
+    draw.text((MARGIN, 130), "LIBYA",
+              font=get_font(16, bold=True), fill=SCARLET)
+    head = headline_font(draw, "MERKURY SUNK OFF LIBYA", LEAD_WIDTH, 46)
+    draw.text((MARGIN, 152), "MERKURY SUNK OFF LIBYA", font=head, fill=INK)
+    sub = headline_font(draw, "UKRAINE'S DRONES SINK A RUSSIAN WARSHIP",
+                        LEAD_WIDTH, 22)
+    draw.text((MARGIN, 202), "UKRAINE'S DRONES SINK A RUSSIAN WARSHIP",
+              font=sub, fill=INK)
 
-# --- lead block -----------------------------------------------------------
-LX, LW = 20, 620
-draw.text((LX, 130), "LIBYA", font=f_kick, fill=RED)
-f_head = fit(draw, "MERKURY SUNK OFF LIBYA", LW, 46)
-draw.text((LX, 152), "MERKURY SUNK OFF LIBYA", font=f_head, fill=INK)
-f_sub = fit(draw, "UKRAINE'S DRONES SINK A RUSSIAN WARSHIP", LW, 22)
-draw.text((LX, 202), "UKRAINE'S DRONES SINK A RUSSIAN WARSHIP", font=f_sub, fill=INK)
+    standfirst = (
+        "Seven Ukrainian sea drones sank the corvette Merkury in Benghazi "
+        "\u2014 2,700 km from the front. A Ka-27 helicopter was destroyed "
+        "and the cargo ship MV Angara hit."
+    )
+    face = get_font(16)
+    rows = wrap_lines(draw, standfirst, face, LEAD_WIDTH)
+    assert len(rows) <= 3, f"standfirst wraps to {len(rows)} lines"
+    y = 234
+    for row in rows:
+        draw.text((MARGIN, y), row, font=face, fill=INK)
+        y += 21
 
-standfirst = (
-    "Seven Ukrainian sea drones sank the corvette Merkury in Benghazi \u2014 "
-    "2,700 km from the front. A Ka-27 helicopter was destroyed and the "
-    "cargo ship MV Angara hit."
-)
-sy = 234
-slines = wrap(draw, standfirst, f_stand, LW)
-assert len(slines) <= 3, f"standfirst wraps to {len(slines)} lines"
-for line in slines:
-    draw.text((LX, sy), line, font=f_stand, fill=INK)
-    sy += 21
+    # Picture panel: centre-crop the committed lead art to the panel shape.
+    px, py, pw, ph = MARGIN, 300, LEAD_WIDTH, 100
+    shown = False
+    for path in sorted(glob("lead-merkury*.png")):
+        try:
+            art = Image.open(path).convert("RGB")
+            aw, ah = art.size
+            want = pw / ph
+            if aw / ah > want:
+                cut = int(ah * want)
+                off = (aw - cut) // 2
+                art = art.crop((off, 0, off + cut, ah))
+            else:
+                cut = int(aw / want)
+                off = (ah - cut) // 2
+                art = art.crop((0, off, aw, off + cut))
+            canvas.paste(art.resize((pw, ph), Image.LANCZOS), (px, py))
+            shown = True
+            break
+        except Exception as err:
+            print(f"lead art failed ({path}): {err}")
+    if not shown:
+        draw.rectangle([px, py, px + pw, py + ph], fill=DEEP)
+        draw.ellipse([px + 34, py + 14, px + 86, py + 66], fill=GOLD)
+        for k in range(3):
+            base = py + 32 + k * 17
+            wave = [(px + 140 + x, base + 5 * math.sin(x / 16.0))
+                    for x in range(0, pw - 180, 5)]
+            draw.line(wave, fill="white", width=3)
 
-# --- lead illustration ----------------------------------------------------
-IX, IY, IW, IH = 20, 300, 620, 100
-pasted = False
-cands = sorted(glob("lead-merkury*.png"))
-if cands:
-    try:
-        lead = Image.open(cands[0]).convert("RGB")
-        # Center-crop to the panel aspect, then resize: deterministic.
-        tw, th = lead.size
-        target = IW / IH
-        if tw / th > target:
-            nw = int(th * target)
-            x0 = (tw - nw) // 2
-            lead = lead.crop((x0, 0, x0 + nw, th))
-        else:
-            nh = int(tw / target)
-            y0 = (th - nh) // 2
-            lead = lead.crop((0, y0, tw, y0 + nh))
-        lead = lead.resize((IW, IH), Image.LANCZOS)
-        img.paste(lead, (IX, IY))
-        pasted = True
-    except Exception as e:
-        print(f"lead art failed: {e}")
-        pasted = False
 
-if not pasted:
-    draw.rectangle([IX, IY, IX + IW, IY + IH], fill=NAVY)
-    draw.ellipse([IX + 34, IY + 14, IX + 86, IY + 66], fill=YELLOW)
-    for k in range(3):
-        base = IY + 32 + k * 17
-        pts = [
-            (IX + 140 + x, base + 5 * math.sin(x / 16.0))
-            for x in range(0, IW - 180, 5)
-        ]
-        draw.line(pts, fill="white", width=3)
-
-# --- medium cards ---------------------------------------------------------
-def card(x, y, w, h, kick, head, body):
-    draw.rectangle([x, y, x + w, y + h], fill=WHITE, outline=BLACK, width=2)
-    draw.text((x + 14, y + 11), kick, font=F(13), fill=RED)
+def story_card(draw, x, y, w, h, kicker, head, body):
+    """One white side-story box with a red kicker and wrapped body."""
+    draw.rectangle([x, y, x + w, y + h], fill=SNOW, outline=INK, width=2)
+    draw.text((x + 14, y + 11), kicker,
+              font=get_font(13, bold=True), fill=SCARLET)
     ty = y + 32
-    for ln in wrap(draw, head, F(20), w - 28):
-        draw.text((x + 14, ty), ln, font=F(20), fill=BLACK)
+    for row in wrap_lines(draw, head, get_font(20, bold=True), w - 28):
+        draw.text((x + 14, ty), row, font=get_font(20, bold=True), fill=INK)
         ty += 24
     ty += 5
-    for ln in wrap(draw, body, F(14, False), w - 28):
+    for row in wrap_lines(draw, body, get_font(14), w - 28):
         if ty > y + h - 17:
             break
-        draw.text((x + 14, ty), ln, font=F(14, False), fill=BLACK)
+        draw.text((x + 14, ty), row, font=get_font(14), fill=INK)
         ty += 18
 
 
-card(660, 130, 344, 130, "MARKETS",
-     "HUANG IS BACK",
-     "Nvidia's board reinstated Jensen Huang as CEO; shares +31%, Nasdaq "
-     "+6.5%. US to blacklist chip firm Megaspeed.")
-
-card(660, 270, 344, 130, "GULF",
-     "GULF ON EDGE",
-     "Iran steps up Gulf attacks and sues for $290bn; US sanctions two "
-     "dozen shadow banks; tankers hit mines.")
-
-# --- numbers strip --------------------------------------------------------
-draw.rectangle([0, 420, 1024, 500], fill=NAVY)
-
-CELLS = [
-    ("+31%", "NVIDIA"),
-    ("$290bn", "IRAN CLAIM"),
-    ("700,000", "RUSSIAN DEAD"),
-    ("24", "BANTEN DEAD"),
-    ("53.7", "JAPAN PMI"),
-    ("$12bn", "VENEZUELA OIL"),
-]
-for i, (num, lab) in enumerate(CELLS):
-    cx = 1024 * (i + 0.5) / 6
-    draw.text((cx, 452), num, font=F(30), fill=WHITE, anchor="mm")
-    draw.text((cx, 481), lab, font=F(11), fill=YELLOW, anchor="mm")
-    if i:
-        draw.line([1024 * i / 6, 432, 1024 * i / 6, 488], fill=CREAM, width=1)
-
-# --- map strip ------------------------------------------------------------
-draw.rectangle([0, 520, 1024, 640], fill=WHITE, outline=BLACK, width=2)
-draw.text((20, 528), "THE WORLD, PINNED", font=F(14), fill=BLACK)
-
-LAND = [
-    (-170, -30, 10, 70),   # Americas
-    (-20, 50, -35, 70),    # Europe / Africa
-    (50, 180, 0, 75),      # Asia
-    (110, 180, -50, 0),    # Oceania
-]
-for gx in range(40, 985, 14):
-    lon = -180 + (gx - 40) * 360.0 / 944.0
-    for gy in range(550, 626, 14):
-        lat = 80 - (gy - 550) * 140.0 / 75.0
-        if any(a <= lon <= b and c <= lat <= d for a, b, c, d in LAND):
-            draw.ellipse([gx - 1, gy - 1, gx + 1, gy + 1], fill=NAVY)
+def draw_side_stories(draw):
+    story_card(draw, 660, 130, 344, 130, "MARKETS", "HUANG IS BACK",
+               "Nvidia's board reinstated Jensen Huang as CEO; shares +31%, "
+               "Nasdaq +6.5%. US to blacklist chip firm Megaspeed.")
+    story_card(draw, 660, 270, 344, 130, "GULF", "GULF ON EDGE",
+               "Iran steps up Gulf attacks and sues for $290bn; US sanctions "
+               "two dozen shadow banks; tankers hit mines.")
 
 
-def pin_xy(lon, lat):
-    """Map lon/lat onto the dot-grid transform used above."""
-    gx = 40 + (lon + 180) * 944.0 / 360.0
-    gy = 550 + (80 - lat) * 75.0 / 140.0
-    return int(gx), int(gy)
+def draw_numbers(draw):
+    """Navy band with six big figures from the day."""
+    draw.rectangle([0, 420, PAGE, 500], fill=DEEP)
+    figures = [
+        ("+31%", "NVIDIA"),
+        ("$290bn", "IRAN CLAIM"),
+        ("700,000", "RUSSIAN DEAD"),
+        ("24", "BANTEN DEAD"),
+        ("53.7", "JAPAN PMI"),
+        ("$12bn", "VENEZUELA OIL"),
+    ]
+    for i, (big, small) in enumerate(figures):
+        cx = PAGE * (i + 0.5) / 6
+        draw.text((cx, 452), big, font=get_font(30, bold=True),
+                  fill=SNOW, anchor="mm")
+        draw.text((cx, 481), small, font=get_font(11),
+                  fill=GOLD, anchor="mm")
+        if i:
+            draw.line([PAGE * i / 6, 432, PAGE * i / 6, 488],
+                      fill=PAPER, width=1)
 
 
-# (number, lon, lat): 1 lead, 2 Huang/Washington, 3 Gulf, 4 Seoul, 5 Kyiv, 6 Banten
-PINS = [
-    (1, 20.1, 32.1),    # Benghazi
-    (2, -77.0, 38.9),   # Washington
-    (3, 56.4, 26.7),    # Strait of Hormuz
-    (4, 127.0, 37.5),   # Seoul
-    (5, 30.5, 50.4),    # Kyiv
-    (6, 105.3, -6.0),   # Banten
-]
-for n, lon, lat in PINS:
-    px, py = pin_xy(lon, lat)
-    draw.ellipse([px - 9, py - 9, px + 9, py + 9], fill=RED, outline=WHITE, width=2)
-    draw.text((px, py), str(n), font=F(10), fill=WHITE, anchor="mm")
+def draw_world_map(draw):
+    """Dotted continents with six numbered pins for the biggest stories."""
+    draw.rectangle([0, 520, PAGE, 640], fill=SNOW, outline=INK, width=2)
+    draw.text((MARGIN, 528), "THE WORLD, PINNED",
+              font=get_font(14, bold=True), fill=INK)
 
-# --- briefs ---------------------------------------------------------------
-# (num, headline, one-liner, date) — verified 23-24 Nov 2026, see research file.
+    continents = [
+        {"lon": (-170, -30), "lat": (10, 70)},    # the Americas
+        {"lon": (-20, 50), "lat": (-35, 70)},     # Europe and Africa
+        {"lon": (50, 180), "lat": (0, 75)},       # Asia
+        {"lon": (110, 180), "lat": (-50, 0)},     # Oceania
+    ]
+
+    def project(lon, lat):
+        gx = 40 + (lon + 180) * 944.0 / 360.0
+        gy = 550 + (80 - lat) * 75.0 / 140.0
+        return int(gx), int(gy)
+
+    for gx in range(40, 985, 14):
+        lon = -180 + (gx - 40) * 360.0 / 944.0
+        for gy in range(550, 626, 14):
+            lat = 80 - (gy - 550) * 140.0 / 75.0
+            if any(box["lon"][0] <= lon <= box["lon"][1] and
+                   box["lat"][0] <= lat <= box["lat"][1]
+                   for box in continents):
+                draw.ellipse([gx - 1, gy - 1, gx + 1, gy + 1], fill=DEEP)
+
+    # number, longitude, latitude: 1 lead, 2 Huang, 3 Gulf, 4 Seoul, 5 Kyiv, 6 Banten
+    pins = [
+        (1, 20.1, 32.1),
+        (2, -77.0, 38.9),
+        (3, 56.4, 26.7),
+        (4, 127.0, 37.5),
+        (5, 30.5, 50.4),
+        (6, 105.3, -6.0),
+    ]
+    for num, lon, lat in pins:
+        px, py = project(lon, lat)
+        draw.ellipse([px - 9, py - 9, px + 9, py + 9],
+                     fill=SCARLET, outline=SNOW, width=2)
+        draw.text((px, py), str(num), font=get_font(10, bold=True),
+                  fill=SNOW, anchor="mm")
+
+
+# (number, headline, one-liner, date) — verified 23-24 Nov 2026, see research file.
 BRIEFS = [
     (4, "Russian jets enter Seoul air zone", "Alert for Ulleung Island.", "24 Nov"),
     (5, "Russia warns Finland, Estonia", "Kyiv warns of new strikes.", "24 Nov"),
@@ -278,41 +272,61 @@ BRIEFS = [
     (33, "Verstappen wins Las Vegas GP", "Second straight there.", "23 Nov"),
 ]
 
-f13b, f13 = load(12, bold=True), load(12)
-draw.text((20, 652), "ALSO TODAY", font=load(16, bold=True), fill=BLACK)
 
-overflow = []
-for cx, group in ((20, BRIEFS[:15]), (522, BRIEFS[15:30])):
-    y = 676
-    for i, (num, headline, line, date) in enumerate(group):
-        # One row per brief: number + bold headline + line + date.
-        draw.text((cx, y), f"{num}.", font=f13b, fill=RED)
-        tx = cx + 30
-        row = f"{headline} \u2014 {line} ({date})"
-        lines = wrap(draw, row, f13, 482 - 30)
-        if len(lines) > 1:
-            overflow.append((num, row))
-        draw.text((tx, y), lines[0], font=f13, fill=BLACK)
-        if i < len(group) - 1:
-            draw.line([(cx, y + 17), (cx + 482, y + 17)], fill=(200, 200, 200), width=1)
-        y += 18
-if overflow:
-    print("OVERFLOW rows (truncated to first line):", overflow)
+def draw_briefs(draw):
+    """Thirty briefs in two columns of fifteen, one row each."""
+    draw.text((MARGIN, 652), "ALSO TODAY",
+              font=get_font(16, bold=True), fill=INK)
+    num_face = get_font(12, bold=True)
+    text_face = get_font(12)
+    too_long = []
+    for col_x, group in ((MARGIN, BRIEFS[:15]), (522, BRIEFS[15:30])):
+        y = 676
+        for i, (num, head, line, date) in enumerate(group):
+            draw.text((col_x, y), f"{num}.", font=num_face, fill=SCARLET)
+            row = f"{head} \u2014 {line} ({date})"
+            rows = wrap_lines(draw, row, text_face, 482 - 30)
+            if len(rows) > 1:
+                too_long.append((num, row))
+            draw.text((col_x + 30, y), rows[0], font=text_face, fill=INK)
+            if i < len(group) - 1:
+                draw.line([(col_x, y + 17), (col_x + 482, y + 17)],
+                          fill=HAIRLINE, width=1)
+            y += 18
+    if too_long:
+        print("OVERFLOW rows (truncated to first line):", too_long)
 
-# --- date check + footer --------------------------------------------------
-draw.rectangle([20, 950, 660, 994], outline=RED, width=2)
-f12 = load(12)
-dtxt = ("DATE CHECK \u2014 NOT 24 NOV: Shenzhen summit ended 21 Nov; BepiColombo "
-        "orbit 21 Nov; Peru quake 22 Nov; Zanzibar fire 21 Nov; Chapo arrest "
-        "21 Nov; EU\u2013Indonesia CEPA 22 Nov.")
-for k, ln in enumerate(wrap(draw, dtxt, f12, 596)[:2]):
-    draw.text((28, 956 + k * 14), ln, font=f12, fill=BLACK)
 
-draw.text((700, 968), "33 STORIES \u00b7 6 REGIONS", font=load(12, bold=True), fill=RED)
+def draw_footer(draw):
+    """Date-check box, story count and the source line."""
+    draw.rectangle([MARGIN, 950, 660, 994], outline=SCARLET, width=2)
+    face = get_font(12)
+    note = ("DATE CHECK \u2014 NOT 24 NOV: Shenzhen summit ended 21 Nov; "
+            "BepiColombo orbit 21 Nov; Peru quake 22 Nov; Zanzibar fire "
+            "21 Nov; Chapo arrest 21 Nov; EU\u2013Indonesia CEPA 22 Nov.")
+    for k, row in enumerate(wrap_lines(draw, note, face, 596)[:2]):
+        draw.text((28, 956 + k * 14), row, font=face, fill=INK)
+    draw.text((700, 968), "33 STORIES \u00b7 6 REGIONS",
+              font=get_font(12, bold=True), fill=SCARLET)
+    draw.text((MARGIN, 1002),
+              "Sources: Reuters, AP, BBC, CNN, Al Jazeera, NYT \u2014 "
+              "The World in One Day, 24 November 2026.",
+              font=get_font(11), fill=MUTED)
 
-f11b = load(11)
-draw.text((20, 1002), "Sources: Reuters, AP, BBC, CNN, Al Jazeera, NYT \u2014 "
-          "The World in One Day, 24 November 2026.", font=f11b, fill=GRAY)
 
-img.save("entry.png", optimize=True)
-print("wrote entry.png")
+def main():
+    canvas = Image.new("RGB", (PAGE, PAGE), PAPER)
+    draw = ImageDraw.Draw(canvas)
+    draw_masthead(draw)
+    draw_lead(canvas, draw)
+    draw_side_stories(draw)
+    draw_numbers(draw)
+    draw_world_map(draw)
+    draw_briefs(draw)
+    draw_footer(draw)
+    canvas.save("entry.png", optimize=True)
+    print("wrote entry.png")
+
+
+if __name__ == "__main__":
+    main()
